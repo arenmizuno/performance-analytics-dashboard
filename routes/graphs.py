@@ -15,9 +15,9 @@ from services.metrics import (
 router = APIRouter(prefix="/graphs", tags=["graphs"])
 
 
-def get_all_activities():
+async def get_all_activities():
     activities = []
-    activities.extend(get_strava_activities())
+    activities.extend(await get_strava_activities())
     activities.extend(get_hevy_activities())
     activities.extend(get_withings_activities())
     activities = attach_load_scores(activities)
@@ -25,11 +25,11 @@ def get_all_activities():
 
 
 @router.get("/mph-over-time")
-def mph_over_time(
+async def mph_over_time(
     activity_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
 ):
-    activities = get_all_activities()
+    activities = await get_all_activities()
     activities = filter_activities(activities, activity_type=activity_type, source=source)
 
     return {
@@ -41,11 +41,11 @@ def mph_over_time(
 
 
 @router.get("/weekly-load")
-def weekly_load(
+async def weekly_load(
     activity_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
 ):
-    activities = get_all_activities()
+    activities = await get_all_activities()
     activities = filter_activities(activities, activity_type=activity_type, source=source)
 
     return {
@@ -57,11 +57,11 @@ def weekly_load(
 
 
 @router.get("/duration-over-time")
-def duration_over_time(
+async def duration_over_time(
     activity_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
 ):
-    activities = get_all_activities()
+    activities = await get_all_activities()
     activities = filter_activities(activities, activity_type=activity_type, source=source)
 
     return {

@@ -10,18 +10,23 @@ router = APIRouter(prefix="/activities", tags=["activities"])
 
 
 @router.get("")
-def get_activities(
+async def get_activities(
     activity_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
 ):
     activities = []
-    activities.extend(get_strava_activities())
-    activities.extend(get_hevy_activities())
-    activities.extend(get_withings_activities())
+
+    if source is None or source.lower() == "strava":
+        activities.extend(await get_strava_activities(activity_type=activity_type if source in [None, "strava"] else None))
+
+    if source is None or source.lower() == "hevy":
+        activities.extend(get_hevy_activities())
+
+    if source is None or source.lower() == "withings":
+        activities.extend(get_withings_activities())
 
     activities = attach_load_scores(activities)
     activities = filter_activities(activities, activity_type=activity_type, source=source)
-
     activities.sort(key=lambda x: x.date, reverse=True)
 
     return {

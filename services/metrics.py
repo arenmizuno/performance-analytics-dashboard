@@ -6,23 +6,17 @@ from models.activity import Activity
 
 
 def compute_load_score(activity: Activity) -> float:
-    """
-    Simple starter load metric.
-    You can replace this later with something more advanced.
-    """
     duration = activity.duration_minutes or 0
 
     multipliers = {
         "run": 1.3,
-        "bike": 1.0,
         "ride": 1.0,
         "hike": 0.9,
-        "walk": 0.6,
-        "strength": 1.1,
         "swim": 1.2,
     }
 
-    multiplier = multipliers.get(activity.activity_type.lower(), 1.0)
+    activity_key = (activity.activity_type or "").lower()
+    multiplier = multipliers.get(activity_key, 1.0)
     return round(duration * multiplier, 2)
 
 
