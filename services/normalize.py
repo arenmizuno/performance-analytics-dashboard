@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from models.activity import Activity
 
@@ -14,9 +14,12 @@ def normalize_strava_activity(raw: dict) -> Activity:
     if duration_minutes and distance_miles and duration_minutes > 0:
         avg_mph = round(distance_miles / (duration_minutes / 60), 2)
 
+    start = _parse_iso(raw.get("start_date"))
+
     return Activity(
         id=str(raw.get("id")),
         source="strava",
+        start_ts=int(start.timestamp()) if start else None,
         activity_type=(raw.get("sport_type") or raw.get("type") or "unknown").lower(),
         name=raw.get("name", "Unnamed Activity"),
         date=raw.get("start_date_local", "")[:10],
@@ -78,6 +81,7 @@ def normalize_withings_workout(raw: dict) -> Activity:
         activity_type=activity_type,
         name=activity_type.replace("_", " ").title(),
         date=datetime.fromtimestamp(start, tz=timezone.utc).date().isoformat() if start else "",
+        start_ts=int(start) if start else None,
         duration_minutes=duration_minutes,
         distance_miles=distance_miles,
         avg_mph=avg_mph,
@@ -92,6 +96,7 @@ GOOGLE_EXERCISE_TYPES = {
     "WALKING": "walk",
     "HIKING": "hike",
     "BIKE": "ride",
+    "BIKING": "ride",
     "OUTDOOR_BIKE": "ride",
     "SPINNING": "ride",
     "SWIMMING": "swim",
@@ -119,25 +124,52 @@ def normalize_google_health_exercise(raw: dict) -> Activity:
     duration_seconds = _parse_duration_seconds(exercise.get("activeDuration"))
     duration_minutes = round(duration_seconds / 60, 2) if duration_seconds else None
 
-    distance_mm = metrics.get("distanceMillimiters", metrics.get("distanceMillimeters"))
+    distance_mm = metrics.get("distanceMillimeters") or metrics.get("distanceMillimiters")
     distance_miles = round(distance_mm / 1_000_000 * 0.621371, 2) if distance_mm else None
 
     avg_mph = None
     if duration_minutes and distance_miles and duration_minutes > 0:
         avg_mph = round(distance_miles / (duration_minutes / 60), 2)
 
+    start = _parse_iso(interval.get("startTime"))
+    local_start = _apply_utc_offset(start, interval.get("startUtcOffset"))
+
     return Activity(
         id=str(raw.get("name") or f"{exercise_type}-{interval.get('startTime', '')}"),
         source="google_health",
         activity_type=activity_type,
         name=exercise.get("displayName") or exercise_type.replace("_", " ").title(),
-        date=(interval.get("startTime") or "")[:10],
+        date=local_start.date().isoformat() if local_start else (interval.get("startTime") or "")[:10],
+        start_ts=int(start.timestamp()) if start else None,
         duration_minutes=duration_minutes,
         distance_miles=distance_miles,
         avg_mph=avg_mph,
         elevation_gain_ft=None,
         calories=metrics.get("caloriesKcal"),
+        active_zone_minutes=_active_zone_minutes(metrics.get("heartRateZoneDurations")),
     )
+
+
+def _apply_utc_offset(dt, offset):
+    """Google reports the local offset separately (e.g. "-18000s")."""
+    if not dt or not offset:
+        return dt
+    return dt + timedelta(seconds=_parse_duration_seconds(offset) or 0)
+
+
+def _active_zone_minutes(zones: dict | None) -> float | None:
+    """
+    Fitbit's Active Zone Minutes: a minute in the moderate (fat burn) zone counts
+    once, and a minute in the vigorous or peak zone counts twice.
+    """
+    if not zones:
+        return None
+
+    def minutes(key):
+        return (_parse_duration_seconds(zones.get(key)) or 0) / 60
+
+    azm = minutes("moderateTime") + 2 * (minutes("vigorousTime") + minutes("peakTime"))
+    return round(azm, 1) if azm else 0.0
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -165,6 +197,7 @@ def normalize_hevy_workout(raw: dict) -> Activity:
         activity_type="strength",
         name=raw.get("title") or "Hevy Workout",
         date=start.date().isoformat() if start else "",
+        start_ts=int(start.timestamp()) if start else None,
         duration_minutes=duration_minutes,
         distance_miles=round(distance_meters * 0.000621371, 2) if distance_meters else None,
         avg_mph=None,

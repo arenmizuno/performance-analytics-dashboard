@@ -93,11 +93,11 @@ async def refresh_strava_token_if_needed():
     return data["access_token"]
 
 
-async def get_strava_activities(activity_type: str | None = None):
+async def get_strava_activities(activity_type: str | None = None, since: datetime | None = None):
     access_token = await refresh_strava_token_if_needed()
 
-    after_dt = datetime.utcnow() - timedelta(days=180)
-    after_ts = int(after_dt.timestamp())
+    # A full sync (since=None) walks the entire history; incremental passes a date.
+    after_ts = int(since.timestamp()) if since else 0
 
     all_activities = []
     page = 1

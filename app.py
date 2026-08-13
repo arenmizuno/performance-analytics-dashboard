@@ -1,9 +1,23 @@
+import logging
+import os
+from contextlib import asynccontextmanager
+
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import RedirectResponse
 
 from db import init_db
+from store import init_store
 from routes.activities import router as activities_router
 from routes.graphs import router as graphs_router
+from routes.sync import router as sync_router
+from routes.personal_bests import router as personal_bests_router
+from routes.metrics import router as metrics_router
+from routes.settings import router as settings_router
+from routes.assistant import router as assistant_router
+from services.sync import sync_all
+from services.personal_bests import seed_catalog
 from services.strava import get_strava_auth_url, exchange_code_for_token
 from services.google_health import (
     get_google_health_auth_url,
@@ -14,12 +28,59 @@ from services.withings import (
     exchange_code_for_token as exchange_withings_code_for_token,
 )
 
-app = FastAPI(title="Performance Analytics Dashboard")
+logger = logging.getLogger(__name__)
+
+SYNC_INTERVAL_MINUTES = int(os.getenv("SYNC_INTERVAL_MINUTES", "60"))
+SYNC_ON_STARTUP = os.getenv("SYNC_ON_STARTUP", "true").lower() == "true"
+
+scheduler = AsyncIOScheduler()
+
+
+async def scheduled_sync():
+    results = await sync_all()
+    logger.info("Scheduled sync: %s", results)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.add_job(
+        scheduled_sync,
+        "interval",
+        minutes=SYNC_INTERVAL_MINUTES,
+        id="sync_all",
+        coalesce=True,
+        max_instances=1,
+    )
+    scheduler.start()
+
+    if SYNC_ON_STARTUP:
+        await scheduled_sync()
+
+    yield
+
+    scheduler.shutdown(wait=False)
+
+
+app = FastAPI(title="Performance Analytics Dashboard", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 init_db()
+init_store()
+seed_catalog()
 
 app.include_router(activities_router)
 app.include_router(graphs_router)
+app.include_router(sync_router)
+app.include_router(personal_bests_router)
+app.include_router(metrics_router)
+app.include_router(settings_router)
+app.include_router(assistant_router)
 
 @app.get("/")
 def root():

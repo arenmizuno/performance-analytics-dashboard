@@ -1,6 +1,6 @@
 import os
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
 import httpx
@@ -19,7 +19,7 @@ WITHINGS_AUTH_URL = "https://account.withings.com/oauth2_user/authorize2"
 WITHINGS_TOKEN_URL = "https://wbsapi.withings.net/v2/oauth2"
 WITHINGS_MEASURE_URL = "https://wbsapi.withings.net/v2/measure"
 
-WITHINGS_SCOPE = "user.activity,user.metrics"
+WITHINGS_SCOPE = "user.info,user.metrics,user.activity,user.sleepevents"
 
 WITHINGS_DATA_FIELDS = ",".join([
     "calories",
@@ -30,6 +30,8 @@ WITHINGS_DATA_FIELDS = ",".join([
     "hr_average",
     "intensity",
 ])
+
+HISTORY_DAYS = 3650  # full-sync lookback
 
 PROVIDER = "withings"
 
@@ -117,10 +119,89 @@ async def refresh_withings_token_if_needed():
     return body["access_token"]
 
 
-async def get_withings_activities(activity_type: str | None = None):
+WITHINGS_MEAS_URL = "https://wbsapi.withings.net/measure"
+
+MEASTYPE_WEIGHT = 1
+KG_TO_LB = 2.20462
+
+
+async def _post(url: str, data: dict) -> dict:
+    access_token = await refresh_withings_token_if_needed()
+    async with httpx.AsyncClient(timeout=30) as client:
+        response = await client.post(
+            url,
+            headers={"Authorization": f"Bearer {access_token}"},
+            data=data,
+        )
+        response.raise_for_status()
+        return _unwrap(response.json())
+
+
+async def get_withings_weight(since: datetime | None = None) -> list[dict]:
+    start = since or (datetime.utcnow() - timedelta(days=365))
+
+    body = await _post(WITHINGS_MEAS_URL, {
+        "action": "getmeas",
+        "meastype": MEASTYPE_WEIGHT,
+        "category": 1,
+        "startdate": int(start.timestamp()),
+        "enddate": int(datetime.utcnow().timestamp()),
+    })
+
+    # Keep the latest reading per day.
+    by_date = {}
+    for group in body.get("measuregrps") or []:
+        for measure in group.get("measures") or []:
+            if measure.get("type") != MEASTYPE_WEIGHT:
+                continue
+
+            kg = measure["value"] * (10 ** measure["unit"])
+            date = datetime.fromtimestamp(group["date"], tz=timezone.utc).date().isoformat()
+
+            existing = by_date.get(date)
+            if not existing or group["date"] > existing[0]:
+                by_date[date] = (group["date"], round(kg * KG_TO_LB, 1))
+
+    return [
+        {"date": date, "metric": "weight_lb", "value": value, "source": "withings"}
+        for date, (_, value) in sorted(by_date.items())
+    ]
+
+
+async def get_withings_steps(since: datetime | None = None) -> list[dict]:
+    start = since or (datetime.utcnow() - timedelta(days=HISTORY_DAYS))
+
+    body = await _post(WITHINGS_MEASURE_URL, {
+        "action": "getactivity",
+        "startdateymd": start.strftime("%Y-%m-%d"),
+        "enddateymd": datetime.utcnow().strftime("%Y-%m-%d"),
+        "data_fields": "steps,distance,calories",
+    })
+
+    points = []
+    for day in body.get("activities") or []:
+        if day.get("steps") is None:
+            continue
+
+        points.append({
+            "date": day["date"],
+            "metric": "steps",
+            "value": float(day["steps"]),
+            "source": "withings",
+            "extra": {
+                "distance_m": day.get("distance"),
+                "calories": day.get("calories"),
+            },
+        })
+
+    return points
+
+
+async def get_withings_activities(activity_type: str | None = None, since: datetime | None = None):
     access_token = await refresh_withings_token_if_needed()
 
-    start_date = (datetime.utcnow() - timedelta(days=180)).strftime("%Y-%m-%d")
+    start = since or (datetime.utcnow() - timedelta(days=HISTORY_DAYS))
+    start_date = start.strftime("%Y-%m-%d")
     end_date = datetime.utcnow().strftime("%Y-%m-%d")
 
     all_series = []
