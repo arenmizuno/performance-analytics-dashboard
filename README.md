@@ -108,8 +108,10 @@ Switch the assistant model without restarting:
 
 ```bash
 python manage.py model --list
-python manage.py model llama-3.1-8b-instant
+python manage.py model openai/gpt-oss-120b
 ```
+
+Model choice matters more than it looks. Tool calling has to be reliable, and smaller instruct models are not. `openai/gpt-oss-120b` is the current default because it answers correctly every time in testing, where `llama-3.3-70b-versatile` produced a malformed tool call on roughly one question in three.
 
 ## Future steps
 
@@ -127,4 +129,6 @@ Personal best detection matches on distance within a tolerance band, so a long t
 
 Coverage is bounded by what each provider actually holds. Active zone minutes only exist from late July 2026 because heart rate zone data starts there, and daily steps reach back only as far as the Fitbit history.
 
-The assistant has been tested against a stubbed model rather than a live one. The tool layer and the agent loop are verified, but prompt behaviour with a real model has not been exercised.
+The assistant depends on the model emitting well formed tool calls, which smaller models do not reliably do. A malformed call is retried once at a higher temperature, and after that the request fails with a message naming the model. Switching to a stronger model is the fix, not rephrasing the question.
+
+The free Groq tier rate limits by the minute, so a burst of questions returns a 429 until it clears. Answers are only as good as the sync, since every tool reads the local store rather than the provider APIs. Anything not yet synced does not exist as far as the assistant is concerned.

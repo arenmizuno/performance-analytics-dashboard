@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel, Field
 
 import store
-from services.assistant import active_config, chat, is_configured
+from services.assistant import ToolCallGenerationError, active_config, chat, is_configured
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +57,24 @@ async def post_chat(payload: ChatRequest):
 
     try:
         return await chat(payload.message, payload.conversation_id)
+    except ToolCallGenerationError as exc:
+        logger.warning("Model produced an unusable tool call: %s", exc)
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                f"{active_config()['model']} produced a malformed tool call twice in a row. "
+                "Try rephrasing, or switch models with: python manage.py model --list"
+            ),
+        )
     except httpx.HTTPStatusError as exc:
         logger.exception("Assistant provider error")
+
+        if exc.response.status_code == 429:
+            raise HTTPException(
+                status_code=429,
+                detail="Rate limited by the model provider. Wait a moment and try again.",
+            )
+
         raise HTTPException(
             status_code=502,
             detail=f"Model provider returned {exc.response.status_code}.",

@@ -89,20 +89,51 @@ def _run_tool(name: str, arguments: str) -> Dict:
         return {"error": f"{type(exc).__name__}: {exc}"}
 
 
+class ToolCallGenerationError(RuntimeError):
+    """The model emitted a tool call the provider could not parse."""
+
+
 async def _complete(client: httpx.AsyncClient, messages: List[Dict], config: Dict) -> Dict:
-    response = await client.post(
-        f"{config['base_url']}/chat/completions",
-        headers={"Authorization": f"Bearer {ASSISTANT_API_KEY}"},
-        json={
-            "model": config["model"],
-            "messages": messages,
-            "tools": TOOL_SCHEMAS,
-            "tool_choice": "auto",
-            "temperature": 0.2,
-        },
-    )
-    response.raise_for_status()
-    return response.json()["choices"][0]["message"]
+    """
+    One model call, retried once on a malformed tool call.
+
+    Smaller instruct models occasionally emit the tool-call syntax wrongly - the
+    name and arguments fused into one field, say - and the provider rejects it
+    with a 400 rather than returning a message. Resampling usually fixes it, so
+    the second attempt runs slightly hotter to land on a different generation.
+    """
+    last_error = None
+
+    for attempt in range(2):
+        response = await client.post(
+            f"{config['base_url']}/chat/completions",
+            headers={"Authorization": f"Bearer {ASSISTANT_API_KEY}"},
+            json={
+                "model": config["model"],
+                "messages": messages,
+                "tools": TOOL_SCHEMAS,
+                "tool_choice": "auto",
+                "temperature": 0.2 if attempt == 0 else 0.6,
+            },
+        )
+
+        if response.status_code == 200:
+            return response.json()["choices"][0]["message"]
+
+        body = {}
+        try:
+            body = response.json().get("error", {})
+        except ValueError:
+            pass
+
+        if body.get("code") != "tool_use_failed":
+            response.raise_for_status()
+
+        last_error = body.get("message", "malformed tool call")
+        logger.warning("Malformed tool call from %s (attempt %d): %s",
+                       config["model"], attempt + 1, last_error)
+
+    raise ToolCallGenerationError(last_error or "malformed tool call")
 
 
 async def chat(message: str, conversation_id: str | None = None) -> Dict:
