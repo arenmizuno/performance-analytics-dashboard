@@ -84,6 +84,9 @@ def build_weekly_load(activities: List[Activity]) -> List[Dict]:
     weekly_totals = defaultdict(float)
 
     for activity in activities:
+        if not activity.date:
+            continue
+
         date_obj = datetime.fromisoformat(activity.date)
         iso_year, iso_week, _ = date_obj.isocalendar()
         week_key = f"{iso_year}-W{iso_week:02d}"

@@ -1,11 +1,8 @@
 from typing import Optional
 from fastapi import APIRouter, Query
 
-from services.strava import get_strava_activities
-from services.hevy import get_hevy_activities
-from services.withings import get_withings_activities
+from services.aggregate import collect_activities
 from services.metrics import (
-    attach_load_scores,
     filter_activities,
     build_mph_over_time,
     build_weekly_load,
@@ -15,13 +12,9 @@ from services.metrics import (
 router = APIRouter(prefix="/graphs", tags=["graphs"])
 
 
-async def get_all_activities():
-    activities = []
-    activities.extend(await get_strava_activities())
-    activities.extend(get_hevy_activities())
-    activities.extend(get_withings_activities())
-    activities = attach_load_scores(activities)
-    return activities
+async def _gather(activity_type: Optional[str], source: Optional[str]):
+    activities, sources = await collect_activities(source=source)
+    return filter_activities(activities, activity_type=activity_type, source=source), sources
 
 
 @router.get("/mph-over-time")
@@ -29,13 +22,13 @@ async def mph_over_time(
     activity_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
 ):
-    activities = await get_all_activities()
-    activities = filter_activities(activities, activity_type=activity_type, source=source)
+    activities, sources = await _gather(activity_type, source)
 
     return {
         "metric": "avg_mph",
         "activity_type": activity_type,
         "source": source,
+        "sources": sources,
         "points": build_mph_over_time(activities),
     }
 
@@ -45,13 +38,13 @@ async def weekly_load(
     activity_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
 ):
-    activities = await get_all_activities()
-    activities = filter_activities(activities, activity_type=activity_type, source=source)
+    activities, sources = await _gather(activity_type, source)
 
     return {
         "metric": "weekly_load",
         "activity_type": activity_type,
         "source": source,
+        "sources": sources,
         "points": build_weekly_load(activities),
     }
 
@@ -61,12 +54,12 @@ async def duration_over_time(
     activity_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
 ):
-    activities = await get_all_activities()
-    activities = filter_activities(activities, activity_type=activity_type, source=source)
+    activities, sources = await _gather(activity_type, source)
 
     return {
         "metric": "duration_minutes",
         "activity_type": activity_type,
         "source": source,
+        "sources": sources,
         "points": build_duration_over_time(activities),
     }

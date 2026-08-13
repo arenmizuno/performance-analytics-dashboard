@@ -1,10 +1,8 @@
 from typing import Optional
 from fastapi import APIRouter, Query
 
-from services.strava import get_strava_activities
-from services.hevy import get_hevy_activities
-from services.withings import get_withings_activities
-from services.metrics import attach_load_scores, filter_activities
+from services.aggregate import collect_activities
+from services.metrics import filter_activities
 
 router = APIRouter(prefix="/activities", tags=["activities"])
 
@@ -14,18 +12,7 @@ async def get_activities(
     activity_type: Optional[str] = Query(default=None),
     source: Optional[str] = Query(default=None),
 ):
-    activities = []
-
-    if source is None or source.lower() == "strava":
-        activities.extend(await get_strava_activities(activity_type=activity_type if source in [None, "strava"] else None))
-
-    if source is None or source.lower() == "hevy":
-        activities.extend(get_hevy_activities())
-
-    if source is None or source.lower() == "withings":
-        activities.extend(get_withings_activities())
-
-    activities = attach_load_scores(activities)
+    activities, sources = await collect_activities(source=source)
     activities = filter_activities(activities, activity_type=activity_type, source=source)
     activities.sort(key=lambda x: x.date, reverse=True)
 
@@ -35,5 +22,6 @@ async def get_activities(
             "activity_type": activity_type,
             "source": source,
         },
+        "sources": sources,
         "activities": [a.model_dump() for a in activities],
     }

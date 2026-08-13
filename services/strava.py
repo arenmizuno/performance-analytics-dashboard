@@ -57,6 +57,10 @@ async def exchange_code_for_token(code: str, scope: str | None = None):
     return data
 
 
+def is_strava_connected() -> bool:
+    return get_any_strava_token() is not None
+
+
 async def refresh_strava_token_if_needed():
     token_row = get_any_strava_token()
     if not token_row:
