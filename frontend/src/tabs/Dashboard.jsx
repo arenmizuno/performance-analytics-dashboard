@@ -1,16 +1,40 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import { BarChart, LineChart, ProgressRing, SleepStagesChart } from '../components/charts'
+import { BarChart, LineChart, Ring, SleepStagesChart } from '../components/charts'
 import Consistency from '../components/Consistency'
 import PersonalBests from '../components/PersonalBests'
 import RangeBar, { RANGES, startDateFor } from '../components/RangeBar'
 
+const SLEEP_TARGET_MIN = 8 * 60
+
 const TILES = [
-  { key: 'weight_lb', label: 'Weight', unit: 'lb', form: 'line', digits: 1, betterWhen: 'down' },
-  { key: 'steps', label: 'Steps', unit: '', form: 'bar', digits: 0, betterWhen: 'up' },
-  { key: 'readiness', label: 'Readiness', unit: '', form: 'line', digits: 0, betterWhen: 'up', zeroBased: true },
-  { key: 'sleep_minutes', label: 'Sleep', unit: '', form: 'sleep', digits: 0, betterWhen: 'up' },
+  { key: 'readiness', label: 'Recovery', unit: '', form: 'line', digits: 0, betterWhen: 'up', zeroBased: true, accent: 'var(--recovery-high)' },
+  { key: 'sleep_minutes', label: 'Sleep', unit: '', form: 'sleep', digits: 0, betterWhen: 'up', accent: 'var(--sleep)' },
+  { key: 'steps', label: 'Steps', unit: '', form: 'bar', digits: 0, betterWhen: 'up', accent: 'var(--exertion)' },
+  { key: 'weight_lb', label: 'Weight', unit: 'lb', form: 'line', digits: 1, betterWhen: 'down', accent: 'var(--text-faint)' },
 ]
+
+/* Recovery banding follows the traffic-light convention the reference product
+   uses: green means go hard, yellow means moderate, red means back off. */
+function recoveryColor(value) {
+  if (value == null) return 'var(--text-faint)'
+  if (value >= 67) return 'var(--recovery-high)'
+  if (value >= 34) return 'var(--recovery-mid)'
+  return 'var(--recovery-low)'
+}
+
+function recoveryVerdict(value) {
+  if (value == null) return 'No sleep or load data for today yet.'
+  if (value >= 67) return 'Primed. Your body is ready for a hard session.'
+  if (value >= 34) return 'Moderate. Hold intensity steady rather than pushing.'
+  return 'Low. Prioritise sleep and keep today easy.'
+}
+
+function hoursMinutes(minutes) {
+  const h = Math.floor(minutes / 60)
+  const m = Math.round(minutes % 60)
+  return `${h}:${String(m).padStart(2, '0')}`
+}
 
 function formatValue(key, value, digits) {
   if (value == null) return '--'
@@ -78,46 +102,89 @@ export default function Dashboard() {
   const points = loaded?.points
   const stats = loaded?.stats
 
+  const recovery = summary.readiness?.value ?? null
+  const recoveryHue = recoveryColor(recovery)
+
+  const exertion = azm?.total || 0
+  const exertionGoal = azm?.goal || 300
+
+  const sleep = summary.sleep_minutes?.value ?? null
+
   return (
     <>
-      <div className="card section">
-        <h2>Active zone minutes &mdash; this week</h2>
-        <div className="ring-row">
-          <ProgressRing value={azm?.total || 0} target={azm?.goal || 300} unit="AZM" />
-          <div>
-            <div className="ring-figure">
-              {Math.round(azm?.total || 0).toLocaleString()}
-              <span style={{ fontSize: 17, color: 'var(--text-secondary)', fontWeight: 400 }}>
-                {' '}/ {azm?.goal} AZM
-              </span>
-            </div>
-            <p className="ring-caption">
-              Minutes in the moderate heart-rate zone count once; vigorous and peak count double.
-              Measured by your watch, so it credits intensity rather than time on feet.
-            </p>
+      <div className="overview">
+        <section className="ring-card" style={{ '--ring-color': recoveryHue }}>
+          <span className="eyebrow">Recovery</span>
+          <Ring
+            pct={recovery == null ? 0 : recovery / 100}
+            color={recoveryHue}
+            label={recovery == null ? 'Recovery unavailable' : `Recovery ${Math.round(recovery)} percent`}
+          >
+            <span className="ring-value" style={{ color: recoveryHue }}>
+              {recovery == null ? '--' : Math.round(recovery)}
+              {recovery != null && <span className="ring-suffix">%</span>}
+            </span>
+            <span className="ring-sub">{summary.readiness?.date || 'no data'}</span>
+          </Ring>
+          <p className="ring-note">{recoveryVerdict(recovery)}</p>
+        </section>
 
-            {editingGoal ? (
-              <div className="goal-edit">
-                <label className="visually-hidden" htmlFor="goal">Weekly AZM goal</label>
-                <input id="goal" type="number" min="1" max="5000" value={goalDraft}
-                       onChange={(e) => setGoalDraft(e.target.value)} autoFocus />
-                <button className="btn small" onClick={async () => {
-                  const n = parseInt(goalDraft, 10)
-                  if (!Number.isFinite(n) || n < 1) return
-                  await api.updateSettings({ weekly_azm_goal: n })
-                  const fresh = await api.activeZoneMinutes(7)
-                  setAzm(fresh)
-                  setEditingGoal(false)
-                }}>Save</button>
-                <button className="btn small secondary" onClick={() => setEditingGoal(false)}>Cancel</button>
-              </div>
-            ) : (
-              <button className="btn small secondary" onClick={() => {
-                setGoalDraft(String(azm?.goal ?? 300)); setEditingGoal(true)
-              }}>Change goal</button>
-            )}
-          </div>
-        </div>
+        <section className="ring-card" style={{ '--ring-color': 'var(--exertion)' }}>
+          <span className="eyebrow">Exertion</span>
+          <Ring
+            pct={exertionGoal > 0 ? exertion / exertionGoal : 0}
+            color="var(--exertion)"
+            label={`${Math.round(exertion)} of ${exertionGoal} active zone minutes this week`}
+          >
+            <span className="ring-value" style={{ color: 'var(--exertion)' }}>
+              {Math.round(exertion).toLocaleString()}
+            </span>
+            <span className="ring-sub">of {exertionGoal} azm</span>
+          </Ring>
+          <p className="ring-note">
+            Weekly active zone minutes. Moderate heart-rate minutes count once, vigorous and peak count double.
+          </p>
+
+          {editingGoal ? (
+            <div className="goal-edit">
+              <label className="visually-hidden" htmlFor="goal">Weekly AZM goal</label>
+              <input id="goal" type="number" min="1" max="5000" value={goalDraft}
+                     onChange={(e) => setGoalDraft(e.target.value)} autoFocus />
+              <button className="btn small" onClick={async () => {
+                const n = parseInt(goalDraft, 10)
+                if (!Number.isFinite(n) || n < 1) return
+                await api.updateSettings({ weekly_azm_goal: n })
+                const fresh = await api.activeZoneMinutes(7)
+                setAzm(fresh)
+                setEditingGoal(false)
+              }}>Save</button>
+              <button className="btn small secondary" onClick={() => setEditingGoal(false)}>Cancel</button>
+            </div>
+          ) : (
+            <button className="btn small secondary" onClick={() => {
+              setGoalDraft(String(azm?.goal ?? 300)); setEditingGoal(true)
+            }}>Change goal</button>
+          )}
+        </section>
+
+        <section className="ring-card" style={{ '--ring-color': 'var(--sleep)' }}>
+          <span className="eyebrow">Sleep</span>
+          <Ring
+            pct={sleep == null ? 0 : sleep / SLEEP_TARGET_MIN}
+            color="var(--sleep)"
+            label={sleep == null ? 'Sleep unavailable' : `${hoursMinutes(sleep)} of 8 hours`}
+          >
+            <span className="ring-value" style={{ color: 'var(--sleep)' }}>
+              {sleep == null ? '--' : hoursMinutes(sleep)}
+            </span>
+            <span className="ring-sub">
+              {sleep == null ? 'no data' : `${Math.round((sleep / SLEEP_TARGET_MIN) * 100)}% of 8 h`}
+            </span>
+          </Ring>
+          <p className="ring-note">
+            Last night against an eight hour target. Open the sleep tile below for the stage breakdown.
+          </p>
+        </section>
       </div>
 
       <div className="grid-tiles">
@@ -126,7 +193,8 @@ export default function Dashboard() {
           return (
             <button
               key={tile.key}
-              className="card tile"
+              className="tile"
+              style={{ '--tile-accent': tile.accent }}
               disabled={!m}
               aria-expanded={open === tile.key}
               onClick={() => setOpen(open === tile.key ? null : tile.key)}
@@ -156,8 +224,8 @@ export default function Dashboard() {
           <RangeBar value={chartRange} onChange={setChartRange} />
           {!points ? <p className="empty">Loading...</p> : (
             openTile.form === 'sleep' ? <SleepStagesChart points={points} />
-            : openTile.form === 'bar' ? <BarChart points={points} />
-            : <LineChart points={points} zeroBased={openTile.zeroBased}
+            : openTile.form === 'bar' ? <BarChart points={points} color={openTile.accent} />
+            : <LineChart points={points} color={openTile.accent} zeroBased={openTile.zeroBased}
                          format={openTile.key === 'weight_lb' ? (v) => v.toFixed(1) : undefined} />
           )}
           {stats && (
@@ -182,16 +250,16 @@ export default function Dashboard() {
           )}
 
           {stats?.stage_averages && (
-            <p className="ring-caption">
+            <p className="ring-note" style={{ marginTop: 'var(--space-md)', maxWidth: '62ch' }}>
               Average night: {Object.entries(stats.stage_averages)
                 .map(([k, v]) => `${k.toLowerCase()} ${Math.round(v)}m`).join(' · ')}
             </p>
           )}
 
           {open === 'readiness' && (
-            <p className="ring-caption" style={{ marginTop: 'var(--space-md)' }}>
+            <p className="ring-note" style={{ marginTop: 'var(--space-md)', maxWidth: '62ch' }}>
               Derived score: 60% last night&rsquo;s sleep against an 8 hour target, 40% acute-to-chronic
-              training load. No connected provider reports readiness directly.
+              training load. No connected provider reports recovery directly.
             </p>
           )}
         </div>
@@ -205,7 +273,7 @@ export default function Dashboard() {
       <PersonalBests data={bests} onChanged={() => api.personalBests().then(setBests)} />
 
       {range?.start_date && (
-        <p className="ring-caption">
+        <p className="ring-note" style={{ maxWidth: '62ch' }}>
           {range.activities.toLocaleString()} activities on record from {range.start_date} to {range.end_date}.
         </p>
       )}

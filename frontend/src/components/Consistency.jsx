@@ -1,8 +1,8 @@
 import { useRef, useState } from 'react'
 
 /* One cell per day, seven rows tall, weeks running left to right.
-   Colour is a sequential blue ramp keyed to minutes trained - magnitude,
-   so one hue light to dark rather than categorical colours. */
+   Colour is a sequential green ramp keyed to minutes trained - magnitude,
+   so one hue dark to bright rather than categorical colours. */
 
 const STEPS = [
   { min: 1, cls: 'var(--cell-1)', label: 'under 30 min' },

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 
 /* Shared geometry. Marks follow the dataviz specs: 2px lines, >=8px markers,
    4px rounded data-ends anchored to the baseline, 2px gaps between fills,
@@ -55,6 +55,7 @@ function Tooltip({ hover, width, children }) {
 export function LineChart({ points, color = 'var(--series-1)', unit = '', height = 220, zeroBased = false, format }) {
   const width = 640
   const ref = useRef(null)
+  const gradientId = useId()
   const [hover, setHover] = useState(null)
   const { x, y, min, max } = useScales(points, width, height, { zeroBased })
 
@@ -62,6 +63,8 @@ export function LineChart({ points, color = 'var(--series-1)', unit = '', height
 
   const fmt = format || ((v) => `${v.toLocaleString(undefined, { maximumFractionDigits: 1 })}${unit}`)
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i)},${y(p.value)}`).join(' ')
+  // Close the stroke down to the baseline so the same geometry can carry a fade.
+  const area = `${path} L${x(points.length - 1)},${height - PAD.bottom} L${x(0)},${height - PAD.bottom} Z`
   const ticks = niceTicks(min, max)
 
   function onMove(e) {
@@ -76,6 +79,13 @@ export function LineChart({ points, color = 'var(--series-1)', unit = '', height
     <div className="chart-wrap" ref={ref}>
       <svg viewBox={`0 0 ${width} ${height}`} role="img"
            onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity="0.34" />
+            <stop offset="100%" stopColor={color} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+
         {ticks.map((t) => (
           <g key={t}>
             <line x1={PAD.left} x2={width - PAD.right} y1={y(t)} y2={y(t)} stroke="var(--grid)" strokeWidth="1" />
@@ -83,14 +93,15 @@ export function LineChart({ points, color = 'var(--series-1)', unit = '', height
           </g>
         ))}
 
-        <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+        <path d={area} fill={`url(#${gradientId})`} stroke="none" />
+        <path d={path} fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
 
         {hover && (
           <>
             <line x1={x(hover.i)} x2={x(hover.i)} y1={PAD.top} y2={height - PAD.bottom}
                   stroke="var(--axis)" strokeWidth="1" />
             <circle cx={x(hover.i)} cy={y(points[hover.i].value)} r="5"
-                    fill={color} stroke="var(--bg-primary)" strokeWidth="2" />
+                    fill={color} stroke="var(--bg)" strokeWidth="2" />
           </>
         )}
 
@@ -282,29 +293,34 @@ export function SleepStagesChart({ points, height = 220 }) {
 
 /* ---------------------------------------------------------------- */
 
-export function ProgressRing({ value, target, unit = 'min', size = 148 }) {
-  const stroke = 14
-  const r = (size - stroke) / 2
+/* The signature ring: a thick arc on a recessive track, sweeping clockwise
+   from twelve o'clock. Readouts are HTML overlaid on the centre rather than
+   SVG text, so they pick up the condensed display face and tabular figures. */
+
+export function Ring({ pct, color, size = 154, thickness = 11, label, children }) {
+  const r = (size - thickness) / 2
   const c = 2 * Math.PI * r
-  const pct = target > 0 ? Math.min(value / target, 1) : 0
-  const over = target > 0 && value > target
+  const filled = Math.max(0, Math.min(pct ?? 0, 1))
 
   return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img"
-         aria-label={`${Math.round(value)} of ${target} ${unit}`}>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--grid)" strokeWidth={stroke} />
-      <circle
-        cx={size / 2} cy={size / 2} r={r} fill="none"
-        stroke={over ? 'var(--good)' : 'var(--series-1)'}
-        strokeWidth={stroke} strokeLinecap="round"
-        strokeDasharray={`${c * pct} ${c}`}
-        transform={`rotate(-90 ${size / 2} ${size / 2})`}
-        style={{ transition: 'stroke-dasharray 0.6s var(--ease)' }}
-      />
-      <text x="50%" y="50%" textAnchor="middle" dy="0.36em"
-            style={{ font: '600 26px/1 inherit', fill: 'var(--text-primary)' }}>
-        {Math.round(pct * 100)}%
-      </text>
-    </svg>
+    <div style={{ position: 'relative', width: size, height: size, flex: 'none' }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label}>
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none"
+                stroke="var(--surface-3)" strokeWidth={thickness} />
+        <circle
+          cx={size / 2} cy={size / 2} r={r} fill="none"
+          stroke={color} strokeWidth={thickness} strokeLinecap="round"
+          strokeDasharray={`${c * filled} ${c}`}
+          transform={`rotate(-90 ${size / 2} ${size / 2})`}
+          style={{ transition: 'stroke-dasharray 0.7s var(--ease)' }}
+        />
+      </svg>
+      <div style={{
+        position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column',
+        alignItems: 'center', justifyContent: 'center', gap: 0, pointerEvents: 'none',
+      }}>
+        {children}
+      </div>
+    </div>
   )
 }
