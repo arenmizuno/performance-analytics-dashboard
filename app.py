@@ -37,8 +37,15 @@ scheduler = AsyncIOScheduler()
 
 
 async def scheduled_sync():
-    results = await sync_all()
-    logger.info("Scheduled sync: %s", results)
+    # A provider error must never take the server down. sync_all already isolates
+    # per-source failures, but a few steps (e.g. the personal-best refresh) can
+    # still raise, so the whole run is guarded: on startup the app comes up
+    # regardless, and the hourly job lives to try again.
+    try:
+        results = await sync_all()
+        logger.info("Scheduled sync: %s", results)
+    except Exception:
+        logger.exception("Sync run failed; continuing without it")
 
 
 @asynccontextmanager
