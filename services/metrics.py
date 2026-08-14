@@ -80,6 +80,20 @@ def build_duration_over_time(activities: List[Activity]) -> List[Dict]:
     return points
 
 
+def active_zone_minutes_by_date(activities: List[Activity]) -> Dict[str, float]:
+    """
+    Active Zone Minutes per day, summed across every source row (duplicates
+    included, since only the wearable reports heart-rate zones). Fitbit's scheme -
+    moderate counts once, vigorous and peak double - is already baked into each
+    row's active_zone_minutes, so this only sums.
+    """
+    by_date: Dict[str, float] = defaultdict(float)
+    for activity in activities:
+        if activity.active_zone_minutes:
+            by_date[activity.date] += activity.active_zone_minutes
+    return by_date
+
+
 def build_weekly_load(activities: List[Activity]) -> List[Dict]:
     weekly_totals = defaultdict(float)
 

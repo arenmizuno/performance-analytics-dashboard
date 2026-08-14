@@ -20,6 +20,10 @@ METRIC_KEYS = {
     "steps": "steps",
     "readiness": "readiness",
     "sleep": "sleep_minutes",
+    "energy": "energy_kcal",
+    "resting_hr": "resting_hr",
+    "hrv": "hrv_ms",
+    "active_zone_minutes": "active_zone_minutes",
 }
 
 
@@ -104,6 +108,22 @@ def get_sleep(start_date=None, end_date=None) -> Dict:
     return _metric_tool("sleep", start_date, end_date)
 
 
+def get_energy(start_date=None, end_date=None) -> Dict:
+    return _metric_tool("energy", start_date, end_date)
+
+
+def get_resting_hr(start_date=None, end_date=None) -> Dict:
+    return _metric_tool("resting_hr", start_date, end_date)
+
+
+def get_hrv(start_date=None, end_date=None) -> Dict:
+    return _metric_tool("hrv", start_date, end_date)
+
+
+def get_active_zone_minutes(start_date=None, end_date=None) -> Dict:
+    return _metric_tool("active_zone_minutes", start_date, end_date)
+
+
 def get_personal_bests(category: Optional[str] = None) -> Dict:
     bests = store.get_personal_bests(category=category)
     return {
@@ -164,6 +184,10 @@ TOOL_FUNCTIONS = {
     "get_steps": get_steps,
     "get_readiness": get_readiness,
     "get_sleep": get_sleep,
+    "get_energy": get_energy,
+    "get_resting_hr": get_resting_hr,
+    "get_hrv": get_hrv,
+    "get_active_zone_minutes": get_active_zone_minutes,
     "get_personal_bests": get_personal_bests,
     "get_activities": get_activities,
 }
@@ -201,6 +225,25 @@ TOOL_SCHEMAS = [
         "get_sleep",
         "Nightly sleep in minutes, including average time per stage "
         "(deep, REM, light, awake). Defaults to the last 30 days.",
+    ),
+    _metric_schema(
+        "get_energy",
+        "Active energy burned per day, in kilocalories. Defaults to the last 30 days.",
+    ),
+    _metric_schema(
+        "get_resting_hr",
+        "Resting heart rate per day, in beats per minute. Lower is generally "
+        "better. Defaults to the last 30 days.",
+    ),
+    _metric_schema(
+        "get_hrv",
+        "Heart rate variability per day, average RMSSD in milliseconds. Higher "
+        "generally signals better recovery. Defaults to the last 30 days.",
+    ),
+    _metric_schema(
+        "get_active_zone_minutes",
+        "Active Zone Minutes per day (exertion): moderate heart-rate minutes "
+        "count once, vigorous and peak count double. Defaults to the last 30 days.",
     ),
     {
         "type": "function",

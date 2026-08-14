@@ -218,10 +218,15 @@ def _civil(d) -> dict:
     return {"date": {"year": d.year, "month": d.month, "day": d.day}}
 
 
-async def get_google_steps(since: datetime | None = None) -> list[dict]:
+async def _daily_rollup(
+    data_type: str, wrapper: str, agg_field: str, metric: str,
+    since: datetime | None = None,
+) -> list[dict]:
     """
-    Daily step totals. The raw steps stream is minute-level, so this uses the
-    dailyRollUp aggregation, walked in 90-day windows (the API's per-request cap).
+    Sum an interval data type to one value per civil day via dailyRollUp, walked
+    in 90-day windows (the API's per-request cap). `wrapper` is the field the
+    rollup nests its value under (named after the data type) and `agg_field` is
+    the aggregate within it, e.g. steps -> countSum, active energy -> kcalSum.
     """
     access_token = await refresh_google_token_if_needed()
 
@@ -247,7 +252,7 @@ async def get_google_steps(since: datetime | None = None) -> list[dict]:
                     body["pageToken"] = page_token
 
                 response = await client.post(
-                    f"{GOOGLE_HEALTH_BASE_URL}/users/me/dataTypes/steps/dataPoints:dailyRollUp",
+                    f"{GOOGLE_HEALTH_BASE_URL}/users/me/dataTypes/{data_type}/dataPoints:dailyRollUp",
                     headers={
                         "Authorization": f"Bearer {access_token}",
                         "Accept": "application/json",
@@ -259,15 +264,15 @@ async def get_google_steps(since: datetime | None = None) -> list[dict]:
                 payload = response.json()
 
                 for row in payload.get("rollupDataPoints") or []:
-                    civil = (row.get("civilStartTime") or {}).get("date") or {}
-                    count = (row.get("steps") or {}).get("countSum")
-                    if not civil or count in (None, ""):
+                    date = _civil_date_str((row.get("civilStartTime") or {}).get("date"))
+                    value = (row.get(wrapper) or {}).get(agg_field)
+                    if not date or value in (None, ""):
                         continue
 
                     points.append({
-                        "date": f"{civil['year']:04d}-{civil['month']:02d}-{civil['day']:02d}",
-                        "metric": "steps",
-                        "value": float(count),
+                        "date": date,
+                        "metric": metric,
+                        "value": round(float(value), 1),
                         "source": "google_health",
                     })
 
@@ -278,6 +283,72 @@ async def get_google_steps(since: datetime | None = None) -> list[dict]:
             window_start = window_end
 
     return points
+
+
+async def get_google_steps(since: datetime | None = None) -> list[dict]:
+    """Daily step totals; the raw steps stream is minute-level, so aggregate it."""
+    return await _daily_rollup("steps", "steps", "countSum", "steps", since)
+
+
+async def get_google_energy(since: datetime | None = None) -> list[dict]:
+    """Active energy burned per day, in kilocalories."""
+    return await _daily_rollup(
+        "active-energy-burned", "activeEnergyBurned", "kcalSum", "energy_kcal", since
+    )
+
+
+def _civil_date_str(civil: dict | None) -> str | None:
+    civil = civil or {}
+    if not civil.get("year"):
+        return None
+    return f"{civil['year']:04d}-{civil['month']:02d}-{civil['day']:02d}"
+
+
+async def _daily_values(
+    data_type: str, wrapper: str, value_field: str, metric: str,
+    since: datetime | None = None,
+) -> list[dict]:
+    """
+    One value per day for a Daily record type (resting HR, HRV). These are already
+    one point per day, so this lists them and applies the window client-side, the
+    way sleep does; the Daily HRV type does not accept a dailyRollUp. The point
+    carries both its civil date and value inside the type-named wrapper field.
+    """
+    start = since or (datetime.utcnow() - timedelta(days=HISTORY_DAYS))
+    cutoff = start.strftime("%Y-%m-%d")
+
+    by_date: dict[str, dict] = {}
+    for raw in await _list_data_points(data_type):
+        payload = raw.get(wrapper) or {}
+        date = _civil_date_str(payload.get("date"))
+        value = payload.get(value_field)
+        if not date or date < cutoff or value in (None, ""):
+            continue
+
+        by_date[date] = {
+            "date": date,
+            "metric": metric,
+            "value": round(float(value), 1),
+            "source": "google_health",
+        }
+
+    return sorted(by_date.values(), key=lambda p: p["date"])
+
+
+async def get_google_resting_hr(since: datetime | None = None) -> list[dict]:
+    """Daily resting heart rate, in beats per minute."""
+    return await _daily_values(
+        "daily-resting-heart-rate", "dailyRestingHeartRate", "beatsPerMinute",
+        "resting_hr", since,
+    )
+
+
+async def get_google_hrv(since: datetime | None = None) -> list[dict]:
+    """Daily heart rate variability (average RMSSD), in milliseconds."""
+    return await _daily_values(
+        "daily-heart-rate-variability", "dailyHeartRateVariability",
+        "averageHeartRateVariabilityMilliseconds", "hrv_ms", since,
+    )
 
 
 def _merge_same_night(points: list[dict]) -> list[dict]:

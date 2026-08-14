@@ -9,8 +9,12 @@ const SLEEP_TARGET_MIN = 8 * 60
 
 const TILES = [
   { key: 'readiness', label: 'Recovery', unit: '', form: 'line', digits: 0, betterWhen: 'up', zeroBased: true, accent: 'var(--recovery-high)' },
+  { key: 'active_zone_minutes', label: 'Exertion', unit: 'azm', form: 'bar', digits: 0, betterWhen: 'up', accent: 'var(--exertion)' },
   { key: 'sleep_minutes', label: 'Sleep', unit: '', form: 'sleep', digits: 0, betterWhen: 'up', accent: 'var(--sleep)' },
   { key: 'steps', label: 'Steps', unit: '', form: 'bar', digits: 0, betterWhen: 'up', accent: 'var(--exertion)' },
+  { key: 'energy_kcal', label: 'Energy burned', unit: 'kcal', form: 'bar', digits: 0, betterWhen: 'up', accent: 'var(--recovery-mid)' },
+  { key: 'resting_hr', label: 'Resting HR', unit: 'bpm', form: 'line', digits: 0, betterWhen: 'down', zeroBased: false, accent: 'var(--recovery-low)' },
+  { key: 'hrv_ms', label: 'HRV', unit: 'ms', form: 'line', digits: 0, betterWhen: 'up', zeroBased: false, accent: 'var(--recovery-high)' },
   { key: 'weight_lb', label: 'Weight', unit: 'lb', form: 'line', digits: 1, betterWhen: 'down', accent: 'var(--text-faint)' },
 ]
 

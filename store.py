@@ -11,6 +11,9 @@ STEPS = "steps"
 SLEEP_MINUTES = "sleep_minutes"
 SLEEP_SCORE = "sleep_score"
 RESTING_HR = "resting_hr"
+HRV_MS = "hrv_ms"
+ENERGY_KCAL = "energy_kcal"
+ACTIVE_ZONE_MINUTES = "active_zone_minutes"
 READINESS = "readiness"
 
 

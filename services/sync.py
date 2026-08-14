@@ -4,7 +4,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, Optional
 
 import store
-from services.metrics import attach_load_scores
+from services.metrics import attach_load_scores, active_zone_minutes_by_date
 from services.strava import get_strava_activities, is_strava_connected
 from services.hevy import get_hevy_activities, get_hevy_changes, is_hevy_connected
 from services.withings import get_withings_weight, is_withings_connected
@@ -12,6 +12,9 @@ from services.google_health import (
     get_google_health_activities,
     get_google_sleep,
     get_google_steps,
+    get_google_energy,
+    get_google_resting_hr,
+    get_google_hrv,
     is_google_health_connected,
 )
 from services.readiness import compute_readiness
@@ -85,6 +88,9 @@ METRIC_FETCHERS = {
     "weight_lb": (get_withings_weight, is_withings_connected),
     "steps": (get_google_steps, is_google_health_connected),
     "sleep_minutes": (get_google_sleep, is_google_health_connected),
+    "energy_kcal": (get_google_energy, is_google_health_connected),
+    "resting_hr": (get_google_resting_hr, is_google_health_connected),
+    "hrv_ms": (get_google_hrv, is_google_health_connected),
 }
 
 
@@ -109,6 +115,17 @@ async def sync_metrics(full: bool = False) -> Dict:
         written = store.upsert_daily_metrics(points)
         store.set_sync_state(f"metric:{metric}", "ok", written)
         results[metric] = {"status": "ok", "written": written}
+
+    # Active Zone Minutes are aggregated from the activity rows already in the
+    # store (duplicates included, since only the wearable reports zones) and
+    # persisted so exertion charts and answers like any other daily metric.
+    azm_rows = store.get_activities(include_duplicates=True)
+    azm_points = [
+        {"date": d, "metric": "active_zone_minutes", "value": round(v, 1), "source": "google_health"}
+        for d, v in sorted(active_zone_minutes_by_date(azm_rows).items())
+    ]
+    results["active_zone_minutes"] = {"status": "ok", "written": store.upsert_daily_metrics(azm_points)}
+    store.set_sync_state("metric:active_zone_minutes", "ok", len(azm_points))
 
     # Readiness is derived from what the others just wrote, so it runs last.
     readiness = compute_readiness()

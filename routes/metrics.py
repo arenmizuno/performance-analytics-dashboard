@@ -4,10 +4,14 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
 
 import store
+from services.metrics import active_zone_minutes_by_date
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
 
-SUPPORTED = ["weight_lb", "steps", "sleep_minutes", "readiness"]
+SUPPORTED = [
+    "weight_lb", "steps", "sleep_minutes", "energy_kcal", "resting_hr", "hrv_ms",
+    "active_zone_minutes", "readiness",
+]
 
 
 @router.get("/active-zone-minutes")
@@ -24,10 +28,7 @@ def active_zone_minutes(days: int = Query(default=7)):
         start_date=start.isoformat(), end_date=end.isoformat(), include_duplicates=True
     )
 
-    by_date = {}
-    for a in rows:
-        if a.active_zone_minutes:
-            by_date[a.date] = by_date.get(a.date, 0) + a.active_zone_minutes
+    by_date = active_zone_minutes_by_date(rows)
 
     total = round(sum(by_date.values()), 1)
     goal = store.get_settings()["weekly_azm_goal"]
